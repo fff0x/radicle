@@ -1,0 +1,311 @@
+#!/usr/bin/env sh
+# shellcheck shell=sh disable=SC2086
+# Version: 0.0.9
+
+set -e
+
+umask 077
+
+# --- CONFIGURATION ----------------------------------------------------------------
+# MODE (required):
+# - seed-node          — Public seed + httpd dashboard (default)
+# - client-node        — Outbound P2P node; identity/config on persistent volume or IDENTITY_SRC
+#
+# seed-node — required:
+# - RAD_ALIAS          - Alias/name of your node
+#
+# seed-node — optional:
+# - RAD_EXTERNAL_ADDR  - External/public address of the node used by other nodes to
+#                        discover and connect to your node (optional)
+# - RAD_SEEDING_POLICY - Default seeding policy: block [default] or allow
+#                        (sets node.seedingPolicy.default)
+# - RAD_SEEDS          - List of repos to be seeded, separated by semicolon
+#                        (seeded with --scope all so all peer namespaces replicate)
+# - RAD_PRIVATE_SEEDS  - List of private repos to be seeded. Format: rad:$RAD@$NID;rad:$RAD@$NID;..
+#                        (--from for initial fetch; --scope all for ongoing replication)
+# - RAD_PINNED_REPOS   - List of repos to be pinned, separated by semicolon.
+#                        Pinned repositories will also be seeded automatically
+# - RAD_BANNER_URL     - Configure banner of seedling dashboard
+# - RAD_AVATAR_URL     - Configure avatar shown on seedling dashboard
+# - RAD_DESCRIPTION    - Configure description shown on seedling dashboard
+#
+# client-node — optional:
+# - RADICLE_HOME       - Overrides RAD_HOME (persistent state directory)
+# - RAD_HOME           - Radicle state directory [default: /node/radicle]; set explicitly
+#                        when mounting a custom path — required for exec probes / rad CLI
+# - IDENTITY_SRC       - Secret mount to copy identity from when PV is empty [default: /radicle-identity]
+# - RAD_ALIAS          - Alias for rad config init when config.json is missing [default: client]
+# - RAD_EXTERNAL_ADDR  - Dialable address advertised to peers (e.g. zeroclaw.tif.internal:8776)
+# - RAD_HUB_SEED       - Hub seed NID@host:port merged into node.connect / preferredSeeds
+# - RAD_P2P_LISTEN     - Listen port for inbound P2P [default: 8776 when RAD_EXTERNAL_ADDR set]
+# ----------------------------------------------------------------------------------
+
+MODE="${MODE:-seed-node}"
+
+if [ -n "${RADICLE_HOME:-}" ]; then
+  RAD_HOME="${RADICLE_HOME}"
+  export RAD_HOME
+fi
+
+if [ "${MODE}" = "client-node" ]; then
+  SEED_ENABLE="${SEED_ENABLE:-0}"
+  HTTP_ENABLE="${HTTP_ENABLE:-0}"
+else
+  SEED_ENABLE="${SEED_ENABLE:-1}"
+  HTTP_ENABLE="${HTTP_ENABLE:-1}"
+fi
+
+install_identity_from_src() {
+  src="${IDENTITY_SRC:-/radicle-identity}"
+  if [ ! -f "${src}/config.json" ]; then
+    return 1
+  fi
+  mkdir -p "${RAD_HOME}/keys"
+  cp "${src}/config.json" "${RAD_HOME}/config.json"
+  if [ -f "${src}/radicle" ]; then
+    cp "${src}/radicle" "${RAD_HOME}/keys/radicle"
+  fi
+  if [ -f "${src}/radicle.pub" ]; then
+    cp "${src}/radicle.pub" "${RAD_HOME}/keys/radicle.pub"
+  fi
+  if [ -d "${src}/keys" ]; then
+    cp -a "${src}/keys/." "${RAD_HOME}/keys/"
+  fi
+  return 0
+}
+
+ensure_keys() {
+  if [ -e "${RAD_HOME}/keys/radicle" ]; then
+    echo "Node key already exists, skipping rad auth.."
+    return 0
+  fi
+  if [ -d "${RAD_HOME}/keys.bkp" ]; then
+    echo "Restoring keys from backup.."
+    cp -a "${RAD_HOME}/keys.bkp" "${RAD_HOME}/keys"
+    return 0
+  fi
+  if install_identity_from_src; then
+    echo "Installed identity from ${IDENTITY_SRC:-/radicle-identity}"
+    return 0
+  fi
+  return 1
+}
+
+apply_client_node_config() {
+  cfg="${RAD_HOME}/config.json"
+  tmp="${RAD_HOME}/config.json.tmp"
+  changed=0
+
+  cp "${cfg}" "${tmp}"
+
+  if [ -n "${RAD_EXTERNAL_ADDR:-}" ]; then
+    echo "Configuring external address (${RAD_EXTERNAL_ADDR}).."
+    jq -M --arg addr "${RAD_EXTERNAL_ADDR}" \
+      '.node.externalAddresses = [$addr]' "${tmp}" > "${tmp}.next"
+    mv "${tmp}.next" "${tmp}"
+    changed=1
+  elif jq -e '.node.externalAddresses | length > 0' "${tmp}" >/dev/null 2>&1; then
+    echo "Clearing external addresses (RAD_EXTERNAL_ADDR unset).."
+    jq -M '.node.externalAddresses = []' "${tmp}" > "${tmp}.next"
+    mv "${tmp}.next" "${tmp}"
+    changed=1
+  fi
+
+  if [ -n "${RAD_HUB_SEED:-}" ]; then
+    echo "Configuring hub seed (${RAD_HUB_SEED}).."
+    jq -M --arg seed "${RAD_HUB_SEED}" \
+      '.preferredSeeds = (([$seed] + (.preferredSeeds // [])) | unique) | .node.connect = (([$seed] + (.node.connect // [])) | unique)' \
+      "${tmp}" > "${tmp}.next"
+    mv "${tmp}.next" "${tmp}"
+    changed=1
+  fi
+
+  if [ "$changed" = 1 ]; then
+    mv "${tmp}" "${cfg}"
+  else
+    rm -f "${tmp}"
+  fi
+}
+
+remove_stale_control_socket() {
+  sock="${RAD_HOME}/node/control.sock"
+  if [ ! -S "${sock}" ]; then
+    return 0
+  fi
+  if rad node status >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "[radicle-node] INFO: removing stale control socket at ${sock}"
+  rm -f "${sock}"
+}
+
+start_node_foreground() {
+  eval "$(ssh-agent -s)" >/dev/null
+  export SSH_AUTH_SOCK
+  rad auth 2>/dev/null || true
+  remove_stale_control_socket
+  echo "[radicle-node] INFO: starting node ($(rad self --did 2>/dev/null || echo unknown))"
+
+  if [ -n "${RAD_EXTERNAL_ADDR:-}" ]; then
+    listen_port="${RAD_P2P_LISTEN:-8776}"
+    echo "[radicle-node] INFO: inbound P2P on 0.0.0.0:${listen_port} (external ${RAD_EXTERNAL_ADDR})"
+    exec radicle-node --listen "0.0.0.0:${listen_port}"
+  fi
+
+  exec rad node start --foreground
+}
+
+if [ "${MODE}" = "client-node" ]; then
+  if ! ensure_keys; then
+    echo "client-node: no identity keys in ${RAD_HOME} or ${IDENTITY_SRC:-/radicle-identity}. Exiting!" >&2
+    exit 1
+  fi
+
+  if [ ! -f "${RAD_HOME}/config.json" ]; then
+    alias="${RAD_ALIAS:-client}"
+    echo "Initializing client configuration (alias: ${alias}).."
+    rad config init --alias "${alias}"
+  fi
+
+  apply_client_node_config
+
+  if ! rad config schema | check-jsonschema --schemafile - "${RAD_HOME}/config.json" >/dev/null 2>&1; then
+    echo "client-node: configuration not valid. Exiting!" >&2
+    exit 3
+  fi
+
+  echo "Current configuration:"
+  rad config
+  echo
+
+  start_node_foreground
+fi
+
+# --- seed-node --------------------------------------------------------------------
+
+if [ -z "$RAD_ALIAS" ]; then
+  echo "Please provide alias in RAD_ALIAS env variable. Exiting!" && exit 1
+fi
+
+if rad config get node.alias >/dev/null 2>&1 && [ "$(rad config get node.alias)" != "${RAD_ALIAS}" ]; then
+  echo "Existing alias is different from value in RAD_ALIAS. Exiting!" && exit 2
+fi
+
+if [ -e "${RAD_HOME}/keys/radicle" ]; then
+  echo "Node key already exists, skipping rad auth.."
+else
+  if [ -d "${RAD_HOME}/keys.bkp" ]; then
+    echo "Restoring keys from backup.."
+    cp -a "${RAD_HOME}/keys.bkp" "${RAD_HOME}/keys"
+  else
+    echo "Generating new radicle profile.."
+    yes "" | rad auth --alias "$RAD_ALIAS" --stdin
+    cp -a "${RAD_HOME}/keys/radicle" "${RAD_HOME}/keys.bkp"
+    echo
+  fi
+  rad self
+  echo
+fi
+
+if [ -f "${RAD_HOME}/config.json" ]; then
+  rm -f "${RAD_HOME}/config.json"
+fi
+
+echo "Initializing configuration.."
+rad config init --alias "$RAD_ALIAS"
+
+if [ -n "$RAD_SEEDS" ] || [ -n "$RAD_PINNED_REPOS" ]; then
+  for repo in $(echo "${RAD_SEEDS};${RAD_PINNED_REPOS}" | tr ";" " ") ; do
+    [ -n "$repo" ] || continue
+    rad seed "$repo" --scope all
+  done
+fi
+
+if [ -n "$RAD_PRIVATE_SEEDS" ]; then
+  for repo in $(echo "${RAD_PRIVATE_SEEDS}" | tr ";" " ") ; do
+    [ -n "$repo" ] || continue
+    rad="${repo%%@*}"
+    nid="${repo#*@}"
+    [ -n "$rad" ] && [ -n "$nid" ] || continue
+
+    rad seed "$rad" --from "$nid" --scope all
+  done
+fi
+
+if [ -n "$RAD_EXTERNAL_ADDR" ]; then
+  echo "Configuring external address.."
+
+  rad config | jq -r -M 'setpath(["node", "externalAddresses"]; ["'${RAD_EXTERNAL_ADDR}'"])' > "${RAD_HOME}/config.json.tmp"
+  mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
+fi
+
+# FIXME:
+# For whatever reasons radicle wants a potential empty object in `.web.pinned.repositories`.
+# Even if schema validation is fine. So we are going to add an empty one..
+# -- ERROR Fatal: failed to parse JSON of configuration file "/node/radicle/config.json":
+# -- missing field `pinned` at line 54 column 3: missing field `pinned` at line 54 column 3
+if [ -n "$RAD_PINNED_REPOS" ]; then
+  echo "Configuring pinned repos.."
+
+  pinned=$(echo "$RAD_PINNED_REPOS" | sed 's/;/","/g')
+
+  rad config | jq -r -M 'setpath(["web", "pinned", "repositories"]; ["'${pinned}'"])' > "${RAD_HOME}/config.json.tmp"
+  mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
+else
+  echo "Configuring pinned repos.."
+  rad config | jq -r -M 'setpath(["web", "pinned", "repositories"]; [])' > "${RAD_HOME}/config.json.tmp"
+  mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
+fi
+
+if [ -n "$RAD_SEEDING_POLICY" ]; then
+  echo "Configuring default seeding policy.."
+
+  rad config | jq -r -M 'setpath(["node", "seedingPolicy", "default"]; "'${RAD_SEEDING_POLICY}'")' > "${RAD_HOME}/config.json.tmp"
+  mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
+fi
+
+echo "Configuring seedling banner.."
+if [ -n "$RAD_BANNER_URL" ]; then
+  rad config | jq -r -M 'setpath(["web", "bannerUrl"]; "'${RAD_BANNER_URL}'")' > "${RAD_HOME}/config.json.tmp"
+  mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
+fi
+
+echo "Configuring seedling avatar.."
+if [ -n "$RAD_AVATAR_URL" ]; then
+  rad config | jq -r -M 'setpath(["web", "avatarUrl"]; "'${RAD_AVATAR_URL}'")' > "${RAD_HOME}/config.json.tmp"
+  mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
+fi
+
+echo "Configuring seedling description.."
+if [ -n "$RAD_DESCRIPTION" ]; then
+  rad config | jq -r -M 'setpath(["web", "description"]; "'${RAD_DESCRIPTION}'")' > "${RAD_HOME}/config.json.tmp"
+else
+  rad config | jq -r -M 'del(.web.description)' > "${RAD_HOME}/config.json.tmp"
+fi
+mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
+
+if ! rad config schema | check-jsonschema --schemafile - "${RAD_HOME}/config.json" >/dev/null 2>&1; then
+  echo "Configuration not valid. Exiting!" && exit 3
+else
+  echo "Creating backup of configuration.."
+  cp "${RAD_HOME}/config.json" "${RAD_HOME}/config.json.bkp"
+
+  echo "Current configuration:"
+  rad config
+  echo
+fi
+
+if [ "$HTTP_ENABLE" -eq 1 ]; then
+  echo "Starting the radicle httpd.."
+  radicle-httpd --listen 0.0.0.0:8080 &
+fi
+
+if [ "$SEED_ENABLE" -eq 1 ]; then
+  rm -rf "${RAD_HOME}/node/control.sock"
+
+  echo "Starting the radicle seed.."
+  exec radicle-node --listen 0.0.0.0:8776
+else
+  # Run whatever the user wanted
+  exec "$@"
+fi
