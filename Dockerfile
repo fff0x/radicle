@@ -26,7 +26,7 @@ LABEL \
   org.opencontainers.image.title="${CAT}-${APP}" \
   org.opencontainers.image.version="${APP_VERSION}" \
   org.opencontainers.image.description="$APP_DESCRIPTION" \
-  org.opencontainers.image.source="https://git.sr.ht/~ff0x/${APP}" 
+  org.opencontainers.image.source="https://radicle.network/nodes/seed.this-is-fine.io/rad:z6swfznxYAgUd7kdNCKbvCYwzEtu" 
 
 # Shameless ripped of <https://app.radicle.xyz/nodes/seed.radicle.garden/rad:zNd4qti1Jc69mCBQAdBeK3Avzy4R>
 
