@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Dockerfile version: 0.0.19
+# Dockerfile version: 0.0.20
 
 ##
 ## MAIN
@@ -13,10 +13,10 @@ FROM alpine:3.22.4
 
 ARG CAT=radicle
 ARG APP=node
-ARG APP_VERSION=0.0.12
+ARG APP_VERSION=0.0.13
 ARG APP_DESCRIPTION="Radicle (seed|client) node"
 # ------------------
-ARG RADICLE_VERSION=1.9.0
+ARG RADICLE_VERSION=1.9.1
 ARG RADICLE_HTTPD_VERSION=0.25.0
 
 LABEL \
