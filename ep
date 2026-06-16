@@ -38,6 +38,12 @@ umask 077
 # - RAD_EXTERNAL_ADDR  - Dialable address advertised to peers (e.g. zeroclaw.tif.internal:8776)
 # - RAD_HUB_SEED       - Hub seed NID@host:port merged into node.connect / preferredSeeds
 # - RAD_P2P_LISTEN     - Listen port for inbound P2P [default: 8776 when RAD_EXTERNAL_ADDR set]
+# - RAD_SEEDS          - Repos to seed so the node fetches their refs — e.g. for the CI
+#                        broker to receive RefsFetched events. ;-separated RIDs (--scope all)
+# - RAD_PRIVATE_SEEDS  - Private repos to seed. Format: rad:$RID@$NID;rad:$RID@$NID;..
+# - RAD_SEEDING_POLICY - Default seeding policy: block [default] or allow
+#                        (RAD_SEEDS / RAD_PRIVATE_SEEDS / RAD_SEEDING_POLICY are honored
+#                         in BOTH client-node and seed-node modes via apply_seeds)
 # ----------------------------------------------------------------------------------
 
 MODE="${MODE:-seed-node}"
