@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # shellcheck shell=sh disable=SC2086
-# Version: 0.0.9
+# Version: 0.0.10
 
 set -e
 
@@ -155,6 +155,34 @@ start_node_foreground() {
   exec rad node start --foreground
 }
 
+apply_seeds() {
+  # Seed the configured repos so the node fetches their refs (and, for the CI
+  # broker, emits RefsFetched events). Public repos via RAD_SEEDS, private repos
+  # via RAD_PRIVATE_SEEDS as "<rid>@<nid>". `rad seed` works offline; the node
+  # acts on the policy once it starts. Used by both client-node and seed-node.
+  if [ -n "${RAD_SEEDING_POLICY:-}" ]; then
+    echo "Setting default seeding policy: ${RAD_SEEDING_POLICY}"
+    rad config | jq -r -M 'setpath(["node","seedingPolicy","default"]; "'"${RAD_SEEDING_POLICY}"'")' > "${RAD_HOME}/config.json.tmp"
+    mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
+  fi
+  if [ -n "${RAD_SEEDS:-}" ]; then
+    for repo in $(echo "${RAD_SEEDS}" | tr ";" " "); do
+      [ -n "$repo" ] || continue
+      echo "Seeding ${repo} (scope all).."
+      rad seed "$repo" --scope all
+    done
+  fi
+  if [ -n "${RAD_PRIVATE_SEEDS:-}" ]; then
+    for repo in $(echo "${RAD_PRIVATE_SEEDS}" | tr ";" " "); do
+      [ -n "$repo" ] || continue
+      rid="${repo%%@*}"; nid="${repo#*@}"
+      [ -n "$rid" ] && [ -n "$nid" ] || continue
+      echo "Seeding private ${rid} from ${nid} (scope all).."
+      rad seed "$rid" --from "$nid" --scope all
+    done
+  fi
+}
+
 if [ "${MODE}" = "client-node" ]; then
   if ! ensure_keys; then
     echo "client-node: no identity keys in ${RAD_HOME} or ${IDENTITY_SRC:-/radicle-identity}. Exiting!" >&2
@@ -168,6 +196,7 @@ if [ "${MODE}" = "client-node" ]; then
   fi
 
   apply_client_node_config
+  apply_seeds
 
   if ! rad config schema | check-jsonschema --schemafile - "${RAD_HOME}/config.json" >/dev/null 2>&1; then
     echo "client-node: configuration not valid. Exiting!" >&2
