@@ -7,10 +7,10 @@
 # Required env (from the broker's ci-broker-secrets Secret, via envFrom):
 #   REGISTRY OCI_REG_USERNAME OCI_REG_PASSWORD COSIGN_KEY COSIGN_PASSWORD
 # Optional:
-#   ARCHES  space-separated arch list [default: "arm64 amd64"]. The cluster is arm64,
-#           so arm64 builds natively; amd64 needs qemu-user-static binfmt registered on
-#           the node (see the ci-broker deployment's binfmt note) — set ARCHES=arm64 to
-#           skip it for a repo whose image only runs in-cluster.
+#   ARCHES  space-separated arch list [default: "arm64 amd64"]. arm64 builds natively;
+#           amd64 RUN steps are emulated via the kernel binfmt qemu handlers registered
+#           fleet-wide by the kube-system `binfmt` DaemonSet. Set ARCHES="arm64" to skip
+#           amd64 for an image that only runs in-cluster.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
