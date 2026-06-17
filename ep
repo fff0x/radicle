@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # shellcheck shell=sh disable=SC2086
-# Version: 0.0.10
+# Version: 0.0.11
 
 set -e
 
@@ -38,6 +38,7 @@ umask 077
 # - RAD_EXTERNAL_ADDR  - Dialable address advertised to peers (e.g. zeroclaw.tif.internal:8776)
 # - RAD_HUB_SEED       - Hub seed NID@host:port merged into node.connect / preferredSeeds
 # - RAD_P2P_LISTEN     - Listen port for inbound P2P [default: 8776 when RAD_EXTERNAL_ADDR set]
+# - RAD_LOG_LEVEL      - radicle-node log level (e.g. warn) to quiet the node; unset = info
 # - RAD_SEEDS          - Repos to seed so the node fetches their refs — e.g. for the CI
 #                        broker to receive RefsFetched events. ;-separated RIDs (--scope all)
 # - RAD_PRIVATE_SEEDS  - Private repos to seed. Format: rad:$RID@$NID;rad:$RID@$NID;..
@@ -152,13 +153,20 @@ start_node_foreground() {
   remove_stale_control_socket
   echo "[radicle-node] INFO: starting node ($(rad self --did 2>/dev/null || echo unknown))"
 
+  # Optional log level (radicle-node default is info). Set RAD_LOG_LEVEL=warn to
+  # quiet the node (e.g. the CI's ci-node sidecar). Empty -> unchanged behaviour.
+  log_opt=""
+  [ -n "${RAD_LOG_LEVEL:-}" ] && log_opt="--log-level ${RAD_LOG_LEVEL}"
+
   if [ -n "${RAD_EXTERNAL_ADDR:-}" ]; then
     listen_port="${RAD_P2P_LISTEN:-8776}"
     echo "[radicle-node] INFO: inbound P2P on 0.0.0.0:${listen_port} (external ${RAD_EXTERNAL_ADDR})"
-    exec radicle-node --listen "0.0.0.0:${listen_port}"
+    exec radicle-node --listen "0.0.0.0:${listen_port}" ${log_opt}
   fi
 
-  exec rad node start --foreground
+  # `rad node start` forwards options after `--` to radicle-node.
+  # shellcheck disable=SC2086
+  exec rad node start --foreground ${log_opt:+-- ${log_opt}}
 }
 
 apply_seeds() {
@@ -339,7 +347,8 @@ if [ "$SEED_ENABLE" -eq 1 ]; then
   rm -rf "${RAD_HOME}/node/control.sock"
 
   echo "Starting the radicle seed.."
-  exec radicle-node --listen 0.0.0.0:8776
+  # shellcheck disable=SC2086
+  exec radicle-node --listen 0.0.0.0:8776 ${RAD_LOG_LEVEL:+--log-level ${RAD_LOG_LEVEL}}
 else
   # Run whatever the user wanted
   exec "$@"
