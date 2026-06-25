@@ -1,5 +1,7 @@
 # radicle/node
 
+[![CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fci.this-is-fine.io%2Fbadge%2Fradicle.json)](https://ci.this-is-fine.io/)
+
 Alpine-based container for a [Radicle](https://radicle.xyz/) **seed node** (public hub + HTTP dashboard) or **client node** (outbound P2P, e.g. ZeroClaw sidecar).
 
 Registry: **`oci.this-is-fine.io/radicle/node`** (`:latest`, `:<git-sha>`). Built and cosign-signed by `images/.build.yml`.
