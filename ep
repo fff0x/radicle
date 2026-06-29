@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # shellcheck shell=sh disable=SC2086
-# Version: 0.0.11
+# Version: 0.0.14
 
 set -e
 
@@ -169,6 +169,17 @@ start_node_foreground() {
   exec rad node start --foreground ${log_opt:+-- ${log_opt}}
 }
 
+# Normalize a seed list (RAD_SEEDS / RAD_PRIVATE_SEEDS / RAD_PINNED_REPOS) into a stream of
+# bare tokens. Strips '#' comments — both full-line (`# foo`) and inline (`rad:z6MQ…  # lab`) —
+# so the ConfigMap can annotate each RID where it sits instead of in a separate block. RIDs and
+# NIDs never contain '#', so cutting each line at its first '#' is safe. ';' and any whitespace
+# (incl. block-scalar newlines) act as separators; callers iterate the unquoted output.
+# NOTE: inline comments only make sense in `key: |` block-scalar form (one entry per line) — in a
+# single ';'-separated line a '#' would swallow the rest of the line, including later entries.
+strip_seed_list() {
+  echo "$1" | sed 's/#.*$//' | tr ';' ' '
+}
+
 apply_seeds() {
   # Seed the configured repos so the node fetches their refs (and, for the CI
   # broker, emits RefsFetched events). Public repos via RAD_SEEDS, private repos
@@ -180,21 +191,46 @@ apply_seeds() {
     mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
   fi
   if [ -n "${RAD_SEEDS:-}" ]; then
-    for repo in $(echo "${RAD_SEEDS}" | tr ";" " "); do
+    for repo in $(strip_seed_list "${RAD_SEEDS}"); do
       [ -n "$repo" ] || continue
       echo "Seeding ${repo} (scope all).."
       rad seed "$repo" --scope all
     done
   fi
   if [ -n "${RAD_PRIVATE_SEEDS:-}" ]; then
-    for repo in $(echo "${RAD_PRIVATE_SEEDS}" | tr ";" " "); do
+    for repo in $(strip_seed_list "${RAD_PRIVATE_SEEDS}"); do
       [ -n "$repo" ] || continue
-      rid="${repo%%@*}"; nid="${repo#*@}"
-      [ -n "$rid" ] && [ -n "$nid" ] || continue
-      echo "Seeding private ${rid} from ${nid} (scope all).."
-      rad seed "$rid" --from "$nid" --scope all
+      seed_private_repo "$repo"
     done
   fi
+}
+
+# Seed one RAD_PRIVATE_SEEDS entry. Accepts either "rad:RID@NID" (bootstrap the
+# initial fetch from that source node via --from) or a bare "rad:RID" (just set the
+# seeding policy with --scope all; the node fetches once a peer offers the repo).
+# The `${var%%@*}` / `${var#*@}` idiom returns the WHOLE string when there is no
+# '@', so we must test for '@' explicitly — otherwise a bare RID is passed to
+# --from <NID> and radicle rejects it ("invalid multibase string: Unknown base code: r").
+seed_private_repo() {
+  entry="$1"
+  rid="${entry%%@*}"
+  [ -n "$rid" ] || return 0
+  case "$entry" in
+    *@*)
+      nid="${entry#*@}"
+      if [ -n "$nid" ]; then
+        echo "Seeding private ${rid} from ${nid} (scope all).."
+        rad seed "$rid" --from "$nid" --scope all
+      else
+        echo "Seeding private ${rid} (scope all; trailing '@' with empty NID ignored).."
+        rad seed "$rid" --scope all
+      fi
+      ;;
+    *)
+      echo "Seeding private ${rid} (scope all; no source NID — append @NID to bootstrap the initial fetch).."
+      rad seed "$rid" --scope all
+      ;;
+  esac
 }
 
 if [ "${MODE}" = "client-node" ]; then
@@ -258,20 +294,16 @@ echo "Initializing configuration.."
 rad config init --alias "$RAD_ALIAS"
 
 if [ -n "$RAD_SEEDS" ] || [ -n "$RAD_PINNED_REPOS" ]; then
-  for repo in $(echo "${RAD_SEEDS};${RAD_PINNED_REPOS}" | tr ";" " ") ; do
+  for repo in $(strip_seed_list "${RAD_SEEDS};${RAD_PINNED_REPOS}") ; do
     [ -n "$repo" ] || continue
     rad seed "$repo" --scope all
   done
 fi
 
 if [ -n "$RAD_PRIVATE_SEEDS" ]; then
-  for repo in $(echo "${RAD_PRIVATE_SEEDS}" | tr ";" " ") ; do
+  for repo in $(strip_seed_list "${RAD_PRIVATE_SEEDS}") ; do
     [ -n "$repo" ] || continue
-    rad="${repo%%@*}"
-    nid="${repo#*@}"
-    [ -n "$rad" ] && [ -n "$nid" ] || continue
-
-    rad seed "$rad" --from "$nid" --scope all
+    seed_private_repo "$repo"
   done
 fi
 
@@ -282,23 +314,18 @@ if [ -n "$RAD_EXTERNAL_ADDR" ]; then
   mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
 fi
 
-# FIXME:
-# For whatever reasons radicle wants a potential empty object in `.web.pinned.repositories`.
-# Even if schema validation is fine. So we are going to add an empty one..
-# -- ERROR Fatal: failed to parse JSON of configuration file "/node/radicle/config.json":
-# -- missing field `pinned` at line 54 column 3: missing field `pinned` at line 54 column 3
-if [ -n "$RAD_PINNED_REPOS" ]; then
-  echo "Configuring pinned repos.."
-
-  pinned=$(echo "$RAD_PINNED_REPOS" | sed 's/;/","/g')
-
-  rad config | jq -r -M 'setpath(["web", "pinned", "repositories"]; ["'${pinned}'"])' > "${RAD_HOME}/config.json.tmp"
-  mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
-else
-  echo "Configuring pinned repos.."
-  rad config | jq -r -M 'setpath(["web", "pinned", "repositories"]; [])' > "${RAD_HOME}/config.json.tmp"
-  mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
-fi
+# Radicle requires .web.pinned.repositories to be present (a missing field fails config
+# parsing with "missing field `pinned`"), so we always set it — to [] when unset.
+# RAD_PINNED_REPOS accepts the SAME separators + inline '#' comments as RAD_SEEDS: strip_seed_list
+# drops the comments and normalizes to space/newline-separated tokens, which we hand to jq as a
+# STRING ARG and split there — never injected into the jq program text (the old sed/string-interp
+# approach broke on block-scalar newlines with a QQSTRING parse error). --arg + split stays both
+# newline-safe and injection-safe; map(select) drops the empties a leading/trailing separator leaves.
+echo "Configuring pinned repos.."
+rad config | jq -r -M --arg pinned "$(strip_seed_list "${RAD_PINNED_REPOS:-}")" \
+  'setpath(["web","pinned","repositories"]; ($pinned | split("[[:space:]]+"; "") | map(select(length > 0))))' \
+  > "${RAD_HOME}/config.json.tmp"
+mv "${RAD_HOME}/config.json.tmp" "${RAD_HOME}/config.json"
 
 if [ -n "$RAD_SEEDING_POLICY" ]; then
   echo "Configuring default seeding policy.."
