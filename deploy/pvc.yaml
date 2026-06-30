@@ -1,0 +1,15 @@
+---
+# Radicle home (RAD_HOME): node identity keypair, storage of seeded repos, and the
+# node's local state. Persisting this keeps the node's stable Node ID across restarts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seed-node
+  labels:
+    app.kubernetes.io/name: seed-node
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

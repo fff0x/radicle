@@ -1,0 +1,16 @@
+---
+# Public Repository IDs the node seeds, pins, and treats as private. These are not
+# secret — edit freely. RIDs look like `rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: radicle-seeds
+  labels:
+    app.kubernetes.io/name: seed-node
+data:
+  # Space-separated RIDs to follow/replicate.
+  RAD_SEEDS: ""
+  # Subset of RAD_SEEDS to keep private (not announced).
+  RAD_PRIVATE_SEEDS: ""
+  # Repos featured/pinned on the node's web view.
+  RAD_PINNED_REPOS: ""

@@ -1,0 +1,77 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seed-node
+  labels:
+    app.kubernetes.io/name: seed-node
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seed-node
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: seed-node
+    spec:
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: seed-node
+          # Pin a real tag for production instead of :latest.
+          image: oci.this-is-fine.io/radicle/node:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: MODE
+              value: seed-node
+            - name: RAD_ALIAS            # node display name
+              value: "my-seed"           # >>> change
+            - name: RAD_EXTERNAL_ADDR    # publicly reachable <host>:<node-port>
+              value: "seed.<domain.tld>:8776" # >>> change to your routable address
+            - name: RAD_DESCRIPTION
+              value: "My Radicle seed node"
+            # Seeds/pins are public Repository IDs — kept out of any Secret. Edit the
+            # radicle-seeds ConfigMap (config.yaml) rather than these lines.
+            - name: RAD_SEEDS
+              valueFrom:
+                configMapKeyRef:
+                  name: radicle-seeds
+                  key: RAD_SEEDS
+            - name: RAD_PRIVATE_SEEDS
+              valueFrom:
+                configMapKeyRef:
+                  name: radicle-seeds
+                  key: RAD_PRIVATE_SEEDS
+            - name: RAD_PINNED_REPOS
+              valueFrom:
+                configMapKeyRef:
+                  name: radicle-seeds
+                  key: RAD_PINNED_REPOS
+          ports:
+            - name: http                 # HTTP API / web
+              containerPort: 8080
+              protocol: TCP
+            - name: node                 # radicle p2p protocol
+              containerPort: 8776
+              protocol: TCP
+          volumeMounts:
+            - name: storage
+              mountPath: "/node/radicle"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: seed-node
