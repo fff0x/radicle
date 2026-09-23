@@ -16,8 +16,8 @@ ARG APP=node
 ARG APP_VERSION=0.0.13
 ARG APP_DESCRIPTION="Radicle (seed|client) node"
 # ------------------
-ARG RADICLE_VERSION=1.9.1
-ARG RADICLE_HTTPD_VERSION=0.25.0
+ARG RADICLE_VERSION=1.10.3
+ARG RADICLE_HTTPD_VERSION=0.29.0
 
 LABEL \
   org.opencontainers.image.vendor="this-is-fine" \
