@@ -19,6 +19,10 @@ identity + repo storage.
 Images are signed with [cosign](https://docs.sigstore.dev/) using a fixed key —
 [`cosign.pub`](cosign.pub). Verify before pulling/deploying:
 
+> The image is built by Radicle CI into the private registry
+> `oci.this-is-fine.io/radicle/node` and mirrored to the public
+> `docker.io/ff0x/radicle-node`.
+
 ```sh
 cosign verify --key cosign.pub oci.this-is-fine.io/radicle/node:latest
 ```

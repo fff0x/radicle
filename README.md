@@ -4,7 +4,7 @@
 
 Alpine-based container for a [Radicle](https://radicle.xyz/) **seed node** (public hub + HTTP dashboard) or **client node** (outbound P2P, e.g. ZeroClaw sidecar).
 
-Registry: **`oci.this-is-fine.io/radicle/node`** (`:latest`, `:<git-sha>`). Built and cosign-signed by `images/.build.yml`.
+Registry: **`oci.this-is-fine.io/radicle/node`** (private, CI builds) — mirrored to **`docker.io/ff0x/radicle-node`** (public). Built and cosign-signed by Radicle CI.
 
 Based on [seed.radicle.garden](https://app.radicle.xyz/nodes/seed.radicle.garden/rad:zNd4qti1Jc69mCBQAdBeK3Avzy4R).
 
