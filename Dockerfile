@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
-# Dockerfile version: 0.0.21
+# Dockerfile version: 0.0.22
 
 ##
 ## MAIN
 ##
 
-FROM alpine:3.22.4
+FROM alpine:3.22.6
 
 ##
 ## VARIABLES
