@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # shellcheck shell=sh disable=SC2086
-# Version: 0.0.14
+# Version: 0.0.15
 
 set -e
 
@@ -23,6 +23,16 @@ umask 077
 #                        (seeded with --scope all so all peer namespaces replicate)
 # - RAD_PRIVATE_SEEDS  - List of private repos to be seeded. Format: rad:$RAD@$NID;rad:$RAD@$NID;..
 #                        (--from for initial fetch; --scope all for ongoing replication)
+#                        Leave EMPTY while the 2026-09 network-protocol vulnerabilities are
+#                        unfixed upstream (cleartext transport + peer impersonation, see
+#                        https://radicle.dev/2026/09/23/disclosure-of-vulnerability-in-network-protocol).
+#                        Private repos must not be served over the network; block them via
+#                        RAD_BLOCK instead.
+# - RAD_BLOCK           - RIDs/NIDs to `rad block` (explicit block policy, checked first by
+#                        the node — wins over any allow). Applied AFTER seeding. The
+#                        mitigation recommended by the disclosure above: list every private
+#                        repo here so the node stops serving it; the copy stays in storage
+#                        for re-seeding once a fixed release is out.
 # - RAD_PINNED_REPOS   - List of repos to be pinned, separated by semicolon.
 #                        Pinned repositories will also be seeded automatically
 # - RAD_BANNER_URL     - Configure banner of seedling dashboard
@@ -45,6 +55,8 @@ umask 077
 # - RAD_SEEDING_POLICY - Default seeding policy: block [default] or allow
 #                        (RAD_SEEDS / RAD_PRIVATE_SEEDS / RAD_SEEDING_POLICY are honored
 #                         in BOTH client-node and seed-node modes via apply_seeds)
+# - RAD_BLOCK           - RIDs/NIDs to `rad block` (honored in BOTH modes via apply_blocks).
+#                        Same separators and comment syntax; see the seed-node docs above.
 # ----------------------------------------------------------------------------------
 
 MODE="${MODE:-seed-node}"
@@ -205,6 +217,20 @@ apply_seeds() {
   fi
 }
 
+# Block the RIDs/NIDs from RAD_BLOCK. Same list syntax as RAD_SEEDS (strip_seed_list:
+# ';' or whitespace separators, inline '#' comments). An explicit block policy is checked
+# first by the node, so it wins over any allow entry — including a RID listed in both
+# RAD_SEEDS and RAD_BLOCK. `rad block` works offline; run AFTER seeding so blocks land.
+apply_blocks() {
+  if [ -n "${RAD_BLOCK:-}" ]; then
+    for repo in $(strip_seed_list "${RAD_BLOCK}"); do
+      [ -n "$repo" ] || continue
+      echo "Blocking ${repo}.."
+      rad block "$repo"
+    done
+  fi
+}
+
 # Seed one RAD_PRIVATE_SEEDS entry. Accepts either "rad:RID@NID" (bootstrap the
 # initial fetch from that source node via --from) or a bare "rad:RID" (just set the
 # seeding policy with --scope all; the node fetches once a peer offers the repo).
@@ -247,6 +273,7 @@ if [ "${MODE}" = "client-node" ]; then
 
   apply_client_node_config
   apply_seeds
+  apply_blocks
 
   if ! rad config schema | check-jsonschema --schemafile - "${RAD_HOME}/config.json" >/dev/null 2>&1; then
     echo "client-node: configuration not valid. Exiting!" >&2
@@ -306,6 +333,8 @@ if [ -n "$RAD_PRIVATE_SEEDS" ]; then
     seed_private_repo "$repo"
   done
 fi
+
+apply_blocks
 
 if [ -n "$RAD_EXTERNAL_ADDR" ]; then
   echo "Configuring external address.."

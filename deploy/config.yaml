@@ -10,7 +10,11 @@ metadata:
 data:
   # Space-separated RIDs to follow/replicate.
   RAD_SEEDS: ""
-  # Subset of RAD_SEEDS to keep private (not announced).
+  # Subset of RAD_SEEDS to keep private (not announced). Leave empty while the
+  # 2026-09 network-protocol disclosure is unfixed upstream — block via RAD_BLOCK.
   RAD_PRIVATE_SEEDS: ""
+  # RIDs/NIDs to `rad block` (explicit block policy — wins over any allow). The
+  # disclosure mitigation: list every private repo here so the node stops serving it.
+  RAD_BLOCK: ""
   # Repos featured/pinned on the node's web view.
   RAD_PINNED_REPOS: ""

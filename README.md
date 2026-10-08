@@ -34,7 +34,8 @@ Entrypoint logic: [`ep`](ep).
 | `RAD_EXTERNAL_ADDR` | Public dial address advertised to peers (`host:8776`) |
 | `RAD_SEEDING_POLICY` | Default policy: `block` (default) or `allow` — sets `node.seedingPolicy.default` |
 | `RAD_SEEDS` | Semicolon-separated RIDs — each `rad seed $RID --scope all` |
-| `RAD_PRIVATE_SEEDS` | `rad:$RID@$NID;…` — each `rad seed … --from $NID --scope all` |
+| `RAD_PRIVATE_SEEDS` | `rad:$RID@$NID;…` — each `rad seed … --from $NID --scope all`. **Leave empty while the 2026-09 network-protocol disclosure is unfixed upstream** — private repos must not be served over the network; block them via `RAD_BLOCK` instead. |
+| `RAD_BLOCK` | RIDs/NIDs (same separators/comments as `RAD_SEEDS`) — each `rad block $RID`, applied **after** seeding. Explicit block policy wins over any allow (incl. `RAD_SEEDING_POLICY=allow`). The mitigation from the [2026-09-23 disclosure](https://radicle.dev/2026/09/23/disclosure-of-vulnerability-in-network-protocol): block every private repo so the node stops serving it; the local copy stays in storage for re-seeding once a fixed release is out. |
 | `RAD_PINNED_REPOS` | Semicolon-separated RIDs — pinned in web UI and seeded with `--scope all` |
 | `RAD_BANNER_URL` | Seedling dashboard banner |
 | `RAD_AVATAR_URL` | Seedling dashboard avatar |
@@ -52,6 +53,7 @@ Entrypoint logic: [`ep`](ep).
 | `RAD_ALIAS` | Alias when generating new config [default: `client`] |
 | `RAD_HUB_SEED` | `NID@host:port` → `preferredSeeds` + `node.connect` |
 | `RAD_EXTERNAL_ADDR` | Advertised dial address (enables inbound P2P when set) |
+| `RAD_BLOCK` | RIDs/NIDs to `rad block` (see seed-node table above) — honored in client-node mode too |
 | `RAD_P2P_LISTEN` | Listen port when `RAD_EXTERNAL_ADDR` set [default: `8776`] |
 | `SEED_ENABLE` | `0` (default for client) — do not run as seed |
 | `HTTP_ENABLE` | `0` (default for client) — do not run HTTP dashboard |

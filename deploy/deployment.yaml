@@ -49,6 +49,11 @@ spec:
                 configMapKeyRef:
                   name: radicle-seeds
                   key: RAD_PRIVATE_SEEDS
+            - name: RAD_BLOCK
+              valueFrom:
+                configMapKeyRef:
+                  name: radicle-seeds
+                  key: RAD_BLOCK
             - name: RAD_PINNED_REPOS
               valueFrom:
                 configMapKeyRef:
