@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
-# Dockerfile version: 0.0.22
+# Dockerfile version: 0.0.23
 
 ##
 ## MAIN
 ##
 
-FROM alpine:3.22.6
+FROM alpine:3.22.7
 
 ##
 ## VARIABLES
@@ -17,7 +17,10 @@ ARG APP_VERSION=0.0.13
 ARG APP_DESCRIPTION="Radicle (seed|client) node"
 # ------------------
 ARG RADICLE_VERSION=1.10.3
-ARG RADICLE_HTTPD_VERSION=0.29.0
+ARG RADICLE_HTTPD_VERSION=0.30.0
+# sha256sum of radicle-httpd-${RADICLE_HTTPD_VERSION}-<ENV>-unknown-linux-musl.tar.xz
+ARG RADICLE_HTTPD_SHA256_X86_64=dd16f6f966e62fafee5a6547d1e31c8857c607c5d955380872c9e7a06500285f
+ARG RADICLE_HTTPD_SHA256_AARCH64=ab6ab9f073f9ebc58b3132f9686b65d882250dc434fb4fea32806481f665dd80
 
 LABEL \
   org.opencontainers.image.vendor="this-is-fine" \
@@ -63,9 +66,16 @@ RUN \
 RUN \
   apk add --update --no-cache check-jsonschema curl git git-daemon jq openssh xz \
   && curl -sSf https://radicle.dev/install | sh -s -- --no-modify-path --version="$RADICLE_VERSION" --prefix="/usr/local" \
-  && if [[ "$TARGETARCH" == 'amd64' ]]; then ENV="x86_64"; elif [[ "$TARGETARCH" == 'arm64' ]]; then ENV="aarch64"; else ENV="$TARGETARCH"; fi \
-  && curl -s -L "https://files.radicle.dev/releases/radicle-httpd/${RADICLE_HTTPD_VERSION}/radicle-httpd-${RADICLE_HTTPD_VERSION}-${ENV}-unknown-linux-musl.tar.xz" \
-  | tar --strip-components=1 -xJ -C /usr/local \
+  && case "$TARGETARCH" in \
+       amd64) ENV="x86_64";   HTTPD_SHA256="$RADICLE_HTTPD_SHA256_X86_64" ;; \
+       arm64) ENV="aarch64";  HTTPD_SHA256="$RADICLE_HTTPD_SHA256_AARCH64" ;; \
+       *) echo "unsupported TARGETARCH=$TARGETARCH" >&2; exit 1 ;; \
+     esac \
+  && curl -fsS -L -o /tmp/httpd.tar.xz \
+       "https://files.radicle.dev/releases/radicle-httpd/${RADICLE_HTTPD_VERSION}/radicle-httpd-${RADICLE_HTTPD_VERSION}-${ENV}-unknown-linux-musl.tar.xz" \
+  && test "$(sha256sum /tmp/httpd.tar.xz | cut -d' ' -f1)" = "$HTTPD_SHA256" \
+  && tar --strip-components=1 -xJ -C /usr/local /tmp/httpd.tar.xz \
+  && rm -f /tmp/httpd.tar.xz \
   && mkdir -p "/${APP}/radicle" && chown -R "$APP":"$CAT" "/${APP}"
 
 ##
