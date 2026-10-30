@@ -5,5 +5,11 @@
 # `ci-build` is the generic build entrypoint baked into the radicle/ci-broker image
 # (single source of truth): it auto-detects this repo as a container image (Dockerfile
 # with ARG CAT=/APP=) and builds + pushes + signs it. No per-repo build.sh.
+#
+# Replay guard (broker >= v1.5.0): when the main run of a tagged commit already
+# published :vX.Y.Z from this SHA, the replayed !TagCreated run ends green instead
+# of failing the immutable-release check after a full rebuild. A :vX.Y.Z built
+# from another commit still fails closed in the real build.
 shell: |
+  ci-build --release-published && exit 0
   ci-build
