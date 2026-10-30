@@ -74,7 +74,7 @@ RUN \
   && curl -fsS -L -o /tmp/httpd.tar.xz \
        "https://files.radicle.dev/releases/radicle-httpd/${RADICLE_HTTPD_VERSION}/radicle-httpd-${RADICLE_HTTPD_VERSION}-${ENV}-unknown-linux-musl.tar.xz" \
   && test "$(sha256sum /tmp/httpd.tar.xz | cut -d' ' -f1)" = "$HTTPD_SHA256" \
-  && tar --strip-components=1 -xJ -C /usr/local /tmp/httpd.tar.xz \
+  && tar -xJf /tmp/httpd.tar.xz -C /usr/local --strip-components=1 \
   && rm -f /tmp/httpd.tar.xz \
   && mkdir -p "/${APP}/radicle" && chown -R "$APP":"$CAT" "/${APP}"
 
