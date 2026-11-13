@@ -1,5 +1,12 @@
 # radicle/node
 
+> **Canonical repository** — development happens on Radicle:
+> [`rad:z6swfznxYAgUd7kdNCKbvCYwzEtu`](https://app.radicle.xyz/nodes/seed.this-is-fine.io/rad:z6swfznxYAgUd7kdNCKbvCYwzEtu)
+> (clone with `git clone rad://z6swfznxYAgUd7kdNCKbvCYwzEtu`).
+>
+> This GitHub repository is a **read-only mirror** synced hourly;
+> patches, issues and releases live on Radicle.
+
 [![CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fci.this-is-fine.io%2Fbadge%2Fradicle.json)](https://ci.this-is-fine.io/)
 
 Alpine-based container for a [Radicle](https://radicle.xyz/) **seed node** (public hub + HTTP dashboard) or **client node** (outbound P2P, e.g. ZeroClaw sidecar).
